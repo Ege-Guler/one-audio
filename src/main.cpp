@@ -3,7 +3,9 @@
 #include <alsa/asoundlib.h>
 #include <vector>
 #include <csignal>
-
+#include "audio/filter/filter.h"
+#include <pthread.h>
+#include <sched.h>
 
 bool running = true; // Global flag to control the loop
 
@@ -12,30 +14,64 @@ void signalHandler(int signum) {
     running = false;
 }
 
+void setRealtimePriority() {
+    struct sched_param sched_param;
+    sched_param.sched_priority = 99; // Max priority for real-time tasks
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched_param) != 0) {
+        std::cerr << "Failed to set real-time priority." << std::endl;
+    }
+}
 
 int main(void)
 {
     std::signal(SIGINT, signalHandler);
+    size_t chunk_size = 16;
 
-    const std::string device_name = "default";
-    snd_pcm_stream_t stream_type = SND_PCM_STREAM_CAPTURE;
+
+    // Common params
     unsigned int sample_rate = 44100;
     unsigned int channels = 1;
-    unsigned int buffer_size = 4096;                      // frames per period
+    snd_pcm_uframes_t buffer_size = 4096; // frames per period
+    snd_pcm_uframes_t period_size = 1024;
+
     std::vector<uint16_t> buffer(buffer_size * channels); // 16-bit little-endian buffer
 
-    Device *mic = new Device(stream_type, device_name, sample_rate, channels, buffer_size);
+
+
+    // Use plughw to auto resampling
+
+    // Configure Physical PCM Device
+    const std::string device_name = "hw:1,0";
+    snd_pcm_stream_t stream_type = SND_PCM_STREAM_CAPTURE;
+
+    // Configure Virtual PCM Device (loopback)
+    const std::string virtual_device_name = "hw:2,0";
+    snd_pcm_stream_t virtual_stream_type = SND_PCM_STREAM_PLAYBACK;
+    
+    Device *mic = new Device(stream_type, device_name, sample_rate, channels, buffer_size, period_size);
+    Device *virtual_mic = new Device(virtual_stream_type, virtual_device_name, sample_rate, channels, buffer_size, period_size);
+
 
     auto init = mic->init();
+    auto virtual_init = virtual_mic->init();
 
-    if (!init)
+    if (!init || !virtual_init)
     {
         return -1;
     }
-
+    
+    setRealtimePriority();
     while (running)
     {
-        int frames_read = mic->readData(buffer.data(), buffer_size);
+        int frames_read = mic->readData(buffer.data(), chunk_size);
+        if(frames_read > 0){
+            //Filter::volumeReduceFilter(buffer, frames_read);
+            int frames_written = virtual_mic->writeData(buffer.data(), frames_read);
+            if (frames_written != frames_read) {
+                std::cerr << "w: " << frames_written << " r: " << frames_read << std::endl;
+                std::cerr << "Mismatch between frames read and frames written!" << std::endl;
+            }
+        }
     }
     std::cout << "buffer";
 
@@ -45,6 +81,10 @@ int main(void)
     }
 
     std::cout << std::endl;
+
+    // delete mic;
+    // delete virtual_mic;
+
 
     return 0;
 }

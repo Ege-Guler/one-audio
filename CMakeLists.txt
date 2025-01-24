@@ -10,12 +10,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(HEADERS
     src/device/device.h
+    src/audio/filter/filter.h
 )
 
 
 set(SOURCES
     src/main.cpp
     src/device/device.cpp
+    src/audio/filter/filter.cpp
 
 )
 include_directories(include)
