@@ -25,13 +25,23 @@ void setRealtimePriority() {
 int main(void)
 {
     std::signal(SIGINT, signalHandler);
-    size_t chunk_size = 16;
+    size_t chunk_size = 512; // 16 is optimal but for fft I need smth between 256-1024
 
 
     // Common params
     unsigned int sample_rate = 44100;
     unsigned int channels = 1;
-    snd_pcm_uframes_t buffer_size = 4096; // frames per period
+
+    /*
+        the higher chunk_size the lower buffer_size 
+
+        4096 - 16
+        1024 - 512
+
+        trying to figure out best settings for synchronization
+    */
+
+    snd_pcm_uframes_t buffer_size = 1024; // frames per period // former val4096
     snd_pcm_uframes_t period_size = 1024;
 
     std::vector<uint16_t> buffer(buffer_size * channels); // 16-bit little-endian buffer
@@ -64,8 +74,10 @@ int main(void)
     while (running)
     {
         int frames_read = mic->readData(buffer.data(), chunk_size);
+
         if(frames_read > 0){
             //Filter::volumeReduceFilter(buffer, frames_read);
+            Filter::muffleBreathing(buffer, frames_read, chunk_size ,sample_rate);
             int frames_written = virtual_mic->writeData(buffer.data(), frames_read);
             if (frames_written != frames_read) {
                 std::cerr << "w: " << frames_written << " r: " << frames_read << std::endl;
@@ -73,7 +85,6 @@ int main(void)
             }
         }
     }
-    std::cout << "buffer";
 
     for (int data : buffer)
     {
@@ -82,8 +93,8 @@ int main(void)
 
     std::cout << std::endl;
 
-    // delete mic;
-    // delete virtual_mic;
+    delete mic;
+    delete virtual_mic;
 
 
     return 0;

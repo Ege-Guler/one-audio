@@ -24,4 +24,4 @@ include_directories(include)
 add_executable(one-audio ${SOURCES} ${HEADERS})
 
 # Link the ALSA library
-target_link_libraries(one-audio asound)
+target_link_libraries(one-audio asound fftw3)
