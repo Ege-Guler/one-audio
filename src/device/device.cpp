@@ -3,8 +3,8 @@
 
 #include <iostream>
 
-Device::Device( snd_pcm_stream_t stream_type,const std::string& device_name, unsigned int sample_rate, unsigned int channels, unsigned int buffer_size)
-    : device_name_(device_name), stream_type_(stream_type), sample_rate_(sample_rate), channels_(channels), buffer_size_(buffer_size), pcm_handle_(nullptr) {}
+Device::Device( snd_pcm_stream_t stream_type,const std::string& device_name, unsigned int sample_rate, unsigned int channels, snd_pcm_uframes_t buffer_size, snd_pcm_uframes_t period_size)
+    : device_name_(device_name), stream_type_(stream_type), sample_rate_(sample_rate), channels_(channels), buffer_size_(buffer_size), period_size_(period_size), pcm_handle_(nullptr) {}
 
 Device::~Device() {
     close();
@@ -31,6 +31,10 @@ bool Device::init() {
     // sample rate
     snd_pcm_hw_params_set_rate_near(pcm_handle_, hw_params, &sample_rate_, nullptr);
     
+    //buffer size
+    snd_pcm_hw_params_set_buffer_size_near(pcm_handle_, hw_params, &buffer_size_);
+    // period size
+    snd_pcm_hw_params_set_period_size_near(pcm_handle_, hw_params, &period_size_, nullptr);
     // 1 for mono, 2 for stereo
     snd_pcm_hw_params_set_channels(pcm_handle_, hw_params, channels_);
 
@@ -55,6 +59,8 @@ int Device::readData(void* buffer, size_t frames) {
     int frames_read = snd_pcm_readi(pcm_handle_, buffer, frames);
     if(frames_read == -EPIPE){
         setError("Buffer overrun", frames_read);
+        snd_pcm_prepare(pcm_handle_);
+        frames_read = 0;
     }
     else if (frames_read < 0) {
         setError("Error reading from PCM device", frames_read);
@@ -63,11 +69,16 @@ int Device::readData(void* buffer, size_t frames) {
 }
 
 int Device::writeData(const void* buffer, size_t frames) {
-    int err = snd_pcm_writei(pcm_handle_, buffer, frames);
-    if (err < 0) {
-        setError("Error writing to PCM device", err);
+    int frames_written = snd_pcm_writei(pcm_handle_, buffer, frames);
+    if(frames_written == -EPIPE){
+        setError("Buffer underrun", frames_written);
+        snd_pcm_prepare(pcm_handle_);
+        frames_written = 0;
     }
-    return err;
+    else if (frames_written < 0) {
+        setError("Error writing to PCM device", frames_written);
+    }
+    return frames_written;
 }
 
 void Device::close() {
